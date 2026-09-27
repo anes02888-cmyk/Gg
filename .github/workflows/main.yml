@@ -21,26 +21,51 @@ jobs:
       run: |
         Expand-Archive -Path "-llamacoder.zip" -DestinationPath "./app" -Force
 
-    - name: Install & Build Web App
+    - name: Setup Electron Wrapper & Build
       run: |
         cd app
-        if (Test-Path "package.json") {
-          npm install
-          npm run build --if-present
+        # البحث عن المجلد الفعلي المزدوج إن وجد
+        $innerFolder = Get-ChildItem -Directory | Select-Object -First 1
+        if ($innerFolder -and (Test-Path "$($innerFolder.FullName)\package.json")) {
+            Set-Location $innerFolder.FullName
+        }
+        
+        # تثبيت المكتبات وتجهيز Electron
+        npm install
+        npm install --save-dev electron electron-builder
+        
+        # إنشاء ملف التشغيل الرئيسي لـ Electron
+        @'
+        const { app, BrowserWindow } = require('electron');
+        const path = require('path');
+
+        function createWindow () {
+          const win = new BrowserWindow({
+            width: 1200,
+            height: 800,
+            webPreferences: {
+              nodeIntegration: true
+            }
+          });
+          
+          if (require('fs').existsSync(path.join(__dirname, 'dist/index.html'))) {
+            win.loadFile(path.join(__dirname, 'dist/index.html'));
+          } else if (require('fs').existsSync(path.join(__dirname, 'build/index.html'))) {
+            win.loadFile(path.join(__dirname, 'build/index.html'));
+          } else {
+            win.loadFile(path.join(__dirname, 'index.html'));
+          }
         }
 
-    - name: Package Desktop App with Nativefier
-      run: |
-        npm install -g nativefier
-        cd app
-        if (Test-Path "dist") {
-          nativefier --name "VoiceForgeApp" "./dist" --single-instance
-        } else {
-          nativefier --name "VoiceForgeApp" "." --single-instance
-        }
+        app.whenReady().then(createWindow);
+        '@ | Out-File -FilePath "electron-main.js" -Encoding utf8
+
+        # بناء ملف الويب أولاً ثم ملف .exe
+        npm run build --if-present
+        npx electron-builder --config.extraMetadata.main=electron-main.js --win portable
 
     - name: Upload App For Download
       uses: actions/upload-artifact@v3
       with:
         name: VoiceForge-Executable-App
-        path: app/*win32-x64*
+        path: app/**/dist/*.exe
