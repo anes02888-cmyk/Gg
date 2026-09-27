@@ -1,14 +1,18 @@
-name: Build Executable App
+name: Deploy Web App
 
 on:
   push:
     branches: [ "main" ]
   workflow_dispatch:
 
-jobs:
-  build:
-    runs-on: windows-latest
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
 
@@ -17,55 +21,32 @@ jobs:
       with:
         node-version: '18'
 
-    - name: Extract Zip File
+    - name: Extract Zip
       run: |
-        Expand-Archive -Path "-llamacoder.zip" -DestinationPath "./app" -Force
+        unzip -q -o "-llamacoder.zip" -d ./app
 
-    - name: Setup Electron Wrapper & Build
+    - name: Build Web App
       run: |
         cd app
-        # البحث عن المجلد الفعلي المزدوج إن وجد
-        $innerFolder = Get-ChildItem -Directory | Select-Object -First 1
-        if ($innerFolder -and (Test-Path "$($innerFolder.FullName)\package.json")) {
-            Set-Location $innerFolder.FullName
-        }
-        
-        # تثبيت المكتبات وتجهيز Electron
-        npm install
-        npm install --save-dev electron electron-builder
-        
-        # إنشاء ملف التشغيل الرئيسي لـ Electron
-        @'
-        const { app, BrowserWindow } = require('electron');
-        const path = require('path');
+        # البحث عن مجلد المشروع الداخلي إن وجد
+        if [ -d "project" ]; then cd project; fi
+        if [ -f "package.json" ]; then
+          npm install
+          npm run build --if-present
+        fi
 
-        function createWindow () {
-          const win = new BrowserWindow({
-            width: 1200,
-            height: 800,
-            webPreferences: {
-              nodeIntegration: true
-            }
-          });
-          
-          if (require('fs').existsSync(path.join(__dirname, 'dist/index.html'))) {
-            win.loadFile(path.join(__dirname, 'dist/index.html'));
-          } else if (require('fs').existsSync(path.join(__dirname, 'build/index.html'))) {
-            win.loadFile(path.join(__dirname, 'build/index.html'));
-          } else {
-            win.loadFile(path.join(__dirname, 'index.html'));
-          }
-        }
-
-        app.whenReady().then(createWindow);
-        '@ | Out-File -FilePath "electron-main.js" -Encoding utf8
-
-        # بناء ملف الويب أولاً ثم ملف .exe
-        npm run build --if-present
-        npx electron-builder --config.extraMetadata.main=electron-main.js --win portable
-
-    - name: Upload App For Download
-      uses: actions/upload-artifact@v3
+    - name: Upload Artifact
+      uses: actions/upload-pages-artifact@v2
       with:
-        name: VoiceForge-Executable-App
-        path: app/**/dist/*.exe
+        path: './app/dist'
+
+  deploy:
+    needs: build-and-deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v2
