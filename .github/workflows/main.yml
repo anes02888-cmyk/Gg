@@ -3,6 +3,7 @@ name: Build Executable App
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -11,14 +12,14 @@ jobs:
     steps:
     - uses: actions/checkout@v3
 
-    - name: Unzip project
-      run: |
-        Expand-Archive -Path "-llamacoder.zip" -DestinationPath "."
-
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
+
+    - name: Extract Project Zip
+      run: |
+        Expand-Archive -Path "-llamacoder.zip" -DestinationPath "./extracted" -Force
 
     - name: Install PyInstaller
       run: |
@@ -27,7 +28,7 @@ jobs:
 
     - name: Build EXE
       run: |
-        pyinstaller --onefile main.py
+        Get-ChildItem -Path ./extracted -Recurse -Filter "*.py" | Select-Object -First 1 | ForEach-Object { pyinstaller --onefile $_.FullName }
 
     - name: Upload App For Download
       uses: actions/upload-artifact@v3
